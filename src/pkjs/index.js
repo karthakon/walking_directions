@@ -57,6 +57,9 @@ function startWatching() {
 }
 
 function formatInstruction(step) {
+  if (step.maneuver && step.maneuver.instruction) {
+    return step.maneuver.instruction;
+  }
   var maneuver = step.maneuver || {};
   var type = maneuver.type || 'proceed';
   var modifier = maneuver.modifier || '';
