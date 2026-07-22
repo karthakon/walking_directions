@@ -3,3 +3,4 @@
 .lock-waf_linux_build
 build/
 patch_*.py
+src/pkjs/config.js
