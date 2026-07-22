@@ -7,12 +7,29 @@ var xhrRequest = function (url, type, callback) {
   xhr.send();
 };
 
+var currentSteps = [];
+
+function sendStep(index) {
+  if (index < 0 || index >= currentSteps.length) return;
+  var step = currentSteps[index];
+  var instruction = step.maneuver && step.maneuver.instruction ? step.maneuver.instruction : (step.name || "Proceed");
+  var distance = Math.round(step.distance);
+  
+  console.log("Sending step " + index + ": " + instruction + " (" + distance + "m)");
+  Pebble.sendAppMessage({
+    'AppKeyStepIndex': index,
+    'AppKeyStepCount': currentSteps.length,
+    'AppKeyInstruction': instruction,
+    'AppKeyDistance': distance
+  });
+}
+
 function getWalkingDirections(destinationQuery) {
   navigator.geolocation.getCurrentPosition(
     function (pos) {
       var startLon = pos.coords.longitude;
       var startLat = pos.coords.latitude;
-      
+
       var geocodeUrl = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(destinationQuery);
       xhrRequest(geocodeUrl, 'GET', function (responseText) {
         var json = JSON.parse(responseText);
@@ -23,25 +40,23 @@ function getWalkingDirections(destinationQuery) {
         }
         var destLat = json[0].lat;
         var destLon = json[0].lon;
-        
+
         var routeUrl = 'https://router.project-osrm.org/route/v1/walking/' + startLon + ',' + startLat + ';' + destLon + ',' + destLat + '?steps=true&overview=false';
         xhrRequest(routeUrl, 'GET', function (routeResponseText) {
           var routeJson = JSON.parse(routeResponseText);
-          if (routeJson.code !== 'Ok' || !routeJson.routes || routeJson.routes.length === 0) {
             console.log('No route found');
             Pebble.sendAppMessage({ 'AppKeyInstruction': 'No walking route found' });
             return;
           }
-          
+
           var steps = routeJson.routes[0].legs[0].steps;
           if (steps.length === 0) {
             Pebble.sendAppMessage({ 'AppKeyInstruction': 'You have arrived!' });
             return;
           }
-          
-          var firstInstruction = steps[0].maneuver.instruction;
-          console.log('Instruction: ' + firstInstruction);
-          Pebble.sendAppMessage({ 'AppKeyInstruction': firstInstruction });
+
+          currentSteps = steps;
+          sendStep(0);
         });
       });
     },
@@ -64,5 +79,8 @@ Pebble.addEventListener('appmessage', function(e) {
     var dest = dict['AppKeyDestination'];
     console.log('Destination received: ' + dest);
     getWalkingDirections(dest);
+  }
+  if (dict['AppKeyStepIndex'] !== undefined) {
+    sendStep(dict['AppKeyStepIndex']);
   }
 });
