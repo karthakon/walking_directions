@@ -23,7 +23,12 @@
       "watchface": false
     },
     "messageKeys": [
-      "dummy"
+      "AppKeyDestination",
+      "AppKeyInstruction",
+      "AppKeyReady"
+    ],
+    "capabilities": [
+      "location"
     ],
     "resources": {
       "media": []
