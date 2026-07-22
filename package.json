@@ -1,8 +1,10 @@
 {
   "name": "walking_directions",
-  "author": "MakeAwesomeHappen",
+  "author": "karthakon",
   "version": "1.0.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
   "dependencies": {},
   "pebble": {
@@ -25,7 +27,10 @@
     "messageKeys": [
       "AppKeyDestination",
       "AppKeyInstruction",
-      "AppKeyReady"
+      "AppKeyReady",
+      "AppKeyStepCount",
+      "AppKeyStepIndex",
+      "AppKeyDistance"
     ],
     "capabilities": [
       "location"
