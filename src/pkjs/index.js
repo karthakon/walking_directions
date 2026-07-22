@@ -9,13 +9,38 @@ var xhrRequest = function (url, type, callback) {
 
 var currentSteps = [];
 
+function formatInstruction(step) {
+  var maneuver = step.maneuver || {};
+  var type = maneuver.type || 'proceed';
+  var modifier = maneuver.modifier || '';
+  var name = step.name || '';
+  
+  var action = 'Proceed';
+  if (type === 'depart') {
+    action = 'Head';
+  } else if (type === 'turn') {
+    action = 'Turn ' + modifier;
+  } else if (type === 'continue') {
+    action = modifier ? 'Continue ' + modifier : 'Continue';
+  } else if (type === 'arrive') {
+    action = 'Arrive';
+  }
+
+  if (name && type !== 'arrive') {
+    return action + ' onto ' + name;
+  } else if (name && type === 'arrive') {
+    return 'Arrive at ' + name;
+  }
+  return action;
+}
+
 function sendStep(index) {
   if (index < 0 || index >= currentSteps.length) return;
   var step = currentSteps[index];
-  var instruction = step.maneuver && step.maneuver.instruction ? step.maneuver.instruction : (step.name || "Proceed");
+  var instruction = formatInstruction(step);
   var distance = Math.round(step.distance);
   
-  console.log("Sending step " + index + ": " + instruction + " (" + distance + "m)");
+  console.log('Sending step ' + index + ': ' + instruction + ' (' + distance + 'm)');
   Pebble.sendAppMessage({
     'AppKeyStepIndex': index,
     'AppKeyStepCount': currentSteps.length,
@@ -44,7 +69,7 @@ function getWalkingDirections(destinationQuery) {
         var routeUrl = 'https://router.project-osrm.org/route/v1/walking/' + startLon + ',' + startLat + ';' + destLon + ',' + destLat + '?steps=true&overview=false';
         xhrRequest(routeUrl, 'GET', function (routeResponseText) {
           var routeJson = JSON.parse(routeResponseText);
-          if (routeJson.code !== "Ok" || !routeJson.routes || routeJson.routes.length === 0) {
+          if (routeJson.code !== 'Ok' || !routeJson.routes || routeJson.routes.length === 0) {
             console.log('No route found');
             Pebble.sendAppMessage({ 'AppKeyInstruction': 'No walking route found' });
             return;
