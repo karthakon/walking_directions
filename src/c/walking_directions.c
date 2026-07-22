@@ -47,6 +47,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       snprintf(s_last_text, sizeof(s_last_text), "%s", instruction_tuple->value->cstring);
     }
     text_layer_set_text(s_text_layer, s_last_text);
+    vibes_short_pulse();
   }
 }
 

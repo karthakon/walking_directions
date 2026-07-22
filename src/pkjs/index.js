@@ -39,7 +39,7 @@ function startWatching() {
       var waypoint = currentSteps[nextIndex].maneuver.location;
       var dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, waypoint[1], waypoint[0]);
       console.log('GPS tick: ' + dist.toFixed(1) + 'm to step ' + nextIndex);
-      if (dist < 20) {
+      if (localStorage.getItem('autoAdvance') !== 'off' && dist < 20) {
         currentStepIndex = nextIndex;
         sendStep(currentStepIndex);
         if (currentStepIndex === currentSteps.length - 1) {
@@ -161,12 +161,14 @@ Pebble.addEventListener('appmessage', function(e) {
   }
 });
 
-var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,button{font-size:18px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><button id="save">Save Settings</button><script>var unitsSelect = document.getElementById("units");var currentUnits = unitsSelect.getAttribute("data-current") || "metric";unitsSelect.value = currentUnits;document.getElementById("save").onclick = function() {var config = { units: unitsSelect.value };window.location.href = "pebblejs://close#" + encodeURIComponent(JSON.stringify(config));};</script></body></html>';
+var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,button{font-size:18px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="autoAdvance">Auto-advance steps:</label><select id="autoAdvance"><option value="on">On (GPS auto-advance)</option><option value="off">Off (manual only)</option></select><button id="save">Save Settings</button><script>var unitsSelect = document.getElementById("units");var currentUnits = unitsSelect.getAttribute("data-current") || "metric";unitsSelect.value = currentUnits;var advanceSelect = document.getElementById("autoAdvance");var currentAdvance = advanceSelect.getAttribute("data-current") || "on";advanceSelect.value = currentAdvance;document.getElementById("save").onclick = function() {var config = { units: unitsSelect.value, autoAdvance: advanceSelect.value };window.location.href = "pebblejs://close#" + encodeURIComponent(JSON.stringify(config));};</script></body></html>';
 
 Pebble.addEventListener('showConfiguration', function() {
   var currentUnits = localStorage.getItem('units') || 'metric';
-  // Inject the current setting into the HTML payload before encoding
+  var currentAdvance = localStorage.getItem('autoAdvance') || 'on';
+  // Inject current settings into the HTML payload before encoding
   var populatedHtml = configHtml.replace('id="units"', 'id="units" data-current="' + currentUnits + '"');
+  populatedHtml = populatedHtml.replace('id="autoAdvance"', 'id="autoAdvance" data-current="' + currentAdvance + '"');
   var dataUri = 'data:text/html;charset=utf-8,' + encodeURIComponent(populatedHtml);
   Pebble.openURL(dataUri);
 });
@@ -176,7 +178,8 @@ Pebble.addEventListener('webviewclosed', function(e) {
     try {
       var config = JSON.parse(decodeURIComponent(e.response));
       localStorage.setItem('units', config.units);
-      console.log('Configuration saved. Units: ' + config.units);
+      localStorage.setItem('autoAdvance', config.autoAdvance || 'on');
+      console.log('Configuration saved. Units: ' + config.units + ', autoAdvance: ' + config.autoAdvance);
     } catch (err) {
       console.log('Error parsing config: ' + err);
     }
