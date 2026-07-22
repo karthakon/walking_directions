@@ -8,6 +8,47 @@ var xhrRequest = function (url, type, callback) {
 };
 
 var currentSteps = [];
+var currentStepIndex = 0;
+var watchId = null;
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  var R = 6371000;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLon/2) * Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function stopWatching() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    console.log('GPS watch cleared.');
+  }
+}
+
+function startWatching() {
+  stopWatching();
+  watchId = navigator.geolocation.watchPosition(
+    function(pos) {
+      if (currentSteps.length === 0) return;
+      var nextIndex = currentStepIndex + 1;
+      if (nextIndex >= currentSteps.length) return;
+      var waypoint = currentSteps[nextIndex].maneuver.location;
+      var dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, waypoint[1], waypoint[0]);
+      console.log('GPS tick: ' + dist.toFixed(1) + 'm to step ' + nextIndex);
+      if (dist < 20) {
+        currentStepIndex = nextIndex;
+        sendStep(currentStepIndex);
+      }
+    },
+    function(err) { console.log('watchPosition error: ' + err.code); },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+  );
+  console.log('GPS watch started.');
+}
 
 function formatInstruction(step) {
   var maneuver = step.maneuver || {};
@@ -84,7 +125,9 @@ function getWalkingDirections(destinationQuery) {
           }
 
           currentSteps = steps;
+          currentStepIndex = 0;
           sendStep(0);
+          startWatching();
         });
       });
     },
@@ -109,7 +152,8 @@ Pebble.addEventListener('appmessage', function(e) {
     getWalkingDirections(dest);
   }
   if (dict['AppKeyStepIndex'] !== undefined) {
-    sendStep(dict['AppKeyStepIndex']);
+    currentStepIndex = dict['AppKeyStepIndex'];
+    sendStep(currentStepIndex);
   }
 });
 
