@@ -19,11 +19,45 @@ static void dictation_session_callback(DictationSession *session, DictationSessi
   }
 }
 
+static int s_current_step_index = 0;
+static int s_total_steps = 0;
+
+static void request_step(int index) {
+  DictionaryIterator *iter;
+  app_message_outbox_begin(&iter);
+  dict_write_int32(iter, MESSAGE_KEY_AppKeyStepIndex, index);
+  app_message_outbox_send();
+}
+
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
   Tuple *instruction_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyInstruction);
+  Tuple *index_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyStepIndex);
+  Tuple *count_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyStepCount);
+  Tuple *distance_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyDistance);
+
   if(instruction_tuple) {
-    snprintf(s_last_text, sizeof(s_last_text), "%s", instruction_tuple->value->cstring);
+    if(index_tuple && count_tuple) {
+      s_current_step_index = index_tuple->value->int32;
+      s_total_steps = count_tuple->value->int32;
+      int distance = distance_tuple ? distance_tuple->value->int32 : 0;
+      snprintf(s_last_text, sizeof(s_last_text), "[%d/%d] %dm
+%s", s_current_step_index + 1, s_total_steps, distance, instruction_tuple->value->cstring);
+    } else {
+      snprintf(s_last_text, sizeof(s_last_text), "%s", instruction_tuple->value->cstring);
+    }
     text_layer_set_text(s_text_layer, s_last_text);
+  }
+}
+
+static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
+  if (s_current_step_index > 0) {
+    request_step(s_current_step_index - 1);
+  }
+}
+
+static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
+  if (s_current_step_index < s_total_steps - 1) {
+    request_step(s_current_step_index + 1);
   }
 }
 
@@ -33,6 +67,8 @@ static void prv_select_click_handler(ClickRecognizerRef recognizer, void *contex
 
 static void prv_click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click_handler);
+  window_single_click_subscribe(BUTTON_ID_UP, prv_up_click_handler);
+  window_single_click_subscribe(BUTTON_ID_DOWN, prv_down_click_handler);
 }
 
 static void prv_window_load(Window *window) {
