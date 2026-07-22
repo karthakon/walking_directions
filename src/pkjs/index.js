@@ -42,6 +42,10 @@ function startWatching() {
       if (dist < 20) {
         currentStepIndex = nextIndex;
         sendStep(currentStepIndex);
+        if (currentStepIndex === currentSteps.length - 1) {
+          console.log('Arrived at destination, clearing GPS watch.');
+          stopWatching();
+        }
       }
     },
     function(err) { console.log('watchPosition error: ' + err.code); },
