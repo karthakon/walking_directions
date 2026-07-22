@@ -1,0 +1,5 @@
+
+# Build artifacts and patch scripts
+.lock-waf_linux_build
+build/
+patch_*.py
