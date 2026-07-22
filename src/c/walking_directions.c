@@ -40,8 +40,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       s_current_step_index = index_tuple->value->int32;
       s_total_steps = count_tuple->value->int32;
       int distance = distance_tuple ? distance_tuple->value->int32 : 0;
-      snprintf(s_last_text, sizeof(s_last_text), "[%d/%d] %dm
-%s", s_current_step_index + 1, s_total_steps, distance, instruction_tuple->value->cstring);
+      snprintf(s_last_text, sizeof(s_last_text), "[%d/%d] %dm\n%s", s_current_step_index + 1, s_total_steps, distance, instruction_tuple->value->cstring);
     } else {
       snprintf(s_last_text, sizeof(s_last_text), "%s", instruction_tuple->value->cstring);
     }
