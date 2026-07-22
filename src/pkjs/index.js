@@ -44,6 +44,7 @@ function getWalkingDirections(destinationQuery) {
         var routeUrl = 'https://router.project-osrm.org/route/v1/walking/' + startLon + ',' + startLat + ';' + destLon + ',' + destLat + '?steps=true&overview=false';
         xhrRequest(routeUrl, 'GET', function (routeResponseText) {
           var routeJson = JSON.parse(routeResponseText);
+          if (routeJson.code !== "Ok" || !routeJson.routes || routeJson.routes.length === 0) {
             console.log('No route found');
             Pebble.sendAppMessage({ 'AppKeyInstruction': 'No walking route found' });
             return;
