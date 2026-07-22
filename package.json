@@ -30,10 +30,12 @@
       "AppKeyReady",
       "AppKeyStepCount",
       "AppKeyStepIndex",
-      "AppKeyDistance"
+      "AppKeyDistance",
+      "AppKeyUnit"
     ],
     "capabilities": [
-      "location"
+      "location",
+      "configurable"
     ],
     "resources": {
       "media": []

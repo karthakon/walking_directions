@@ -38,14 +38,16 @@ function sendStep(index) {
   if (index < 0 || index >= currentSteps.length) return;
   var step = currentSteps[index];
   var instruction = formatInstruction(step);
-  var distance = Math.round(step.distance);
-  
-  console.log('Sending step ' + index + ': ' + instruction + ' (' + distance + 'm)');
+  var units = localStorage.getItem('units') || 'metric';
+  var calcDistance = (units === 'imperial') ? step.distance * 3.28084 : step.distance;
+  var distance = Math.round(calcDistance);
+  console.log('Sending step ' + index + ': ' + instruction + ' (' + distance + (units === 'imperial' ? 'ft' : 'm') + ')');
   Pebble.sendAppMessage({
     'AppKeyStepIndex': index,
     'AppKeyStepCount': currentSteps.length,
     'AppKeyInstruction': instruction,
-    'AppKeyDistance': distance
+    'AppKeyDistance': distance,
+    'AppKeyUnit': units === 'imperial' ? 'ft' : 'm'
   });
 }
 
@@ -108,5 +110,27 @@ Pebble.addEventListener('appmessage', function(e) {
   }
   if (dict['AppKeyStepIndex'] !== undefined) {
     sendStep(dict['AppKeyStepIndex']);
+  }
+});
+
+var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,button{font-size:18px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><button id="save">Save Settings</button><script>var unitsSelect = document.getElementById("units");var currentUnits = unitsSelect.getAttribute("data-current") || "metric";unitsSelect.value = currentUnits;document.getElementById("save").onclick = function() {var config = { units: unitsSelect.value };window.location.href = "pebblejs://close#" + encodeURIComponent(JSON.stringify(config));};</script></body></html>';
+
+Pebble.addEventListener('showConfiguration', function() {
+  var currentUnits = localStorage.getItem('units') || 'metric';
+  // Inject the current setting into the HTML payload before encoding
+  var populatedHtml = configHtml.replace('id="units"', 'id="units" data-current="' + currentUnits + '"');
+  var dataUri = 'data:text/html;charset=utf-8,' + encodeURIComponent(populatedHtml);
+  Pebble.openURL(dataUri);
+});
+
+Pebble.addEventListener('webviewclosed', function(e) {
+  if (e && e.response && e.response !== 'CANCELLED') {
+    try {
+      var config = JSON.parse(decodeURIComponent(e.response));
+      localStorage.setItem('units', config.units);
+      console.log('Configuration saved. Units: ' + config.units);
+    } catch (err) {
+      console.log('Error parsing config: ' + err);
+    }
   }
 });

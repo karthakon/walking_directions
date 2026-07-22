@@ -34,13 +34,15 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   Tuple *index_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyStepIndex);
   Tuple *count_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyStepCount);
   Tuple *distance_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyDistance);
+  Tuple *unit_tuple = dict_find(iterator, MESSAGE_KEY_AppKeyUnit);
 
   if(instruction_tuple) {
     if(index_tuple && count_tuple) {
       s_current_step_index = index_tuple->value->int32;
       s_total_steps = count_tuple->value->int32;
       int distance = distance_tuple ? distance_tuple->value->int32 : 0;
-      snprintf(s_last_text, sizeof(s_last_text), "[%d/%d] %dm\n%s", s_current_step_index + 1, s_total_steps, distance, instruction_tuple->value->cstring);
+      const char* unit_str = unit_tuple ? unit_tuple->value->cstring : "m";
+      snprintf(s_last_text, sizeof(s_last_text), "[%d/%d] %d%s\n%s", s_current_step_index + 1, s_total_steps, distance, unit_str, instruction_tuple->value->cstring);
     } else {
       snprintf(s_last_text, sizeof(s_last_text), "%s", instruction_tuple->value->cstring);
     }
