@@ -163,7 +163,7 @@ function getWalkingDirections(destinationQuery) {
         var mapboxToken = (userToken && userToken.length > 10) ? userToken : config.MAPBOX_TOKEN;
         var routeUrl = 'https://api.mapbox.com/directions/v5/mapbox/walking/' +
           startLon + ',' + startLat + ';' + destLon + ',' + destLat +
-          '?steps=true&overview=false&access_token=' + mapboxToken;
+          '?steps=true&overview=false&walkway_bias=-1&access_token=' + mapboxToken;
 
         xhrRequest(routeUrl, 'GET', function (routeResponseText) {
           var routeJson = JSON.parse(routeResponseText);
