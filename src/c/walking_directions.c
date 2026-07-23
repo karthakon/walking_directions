@@ -10,7 +10,7 @@ static const GPoint STRAIGHT_PTS[] = {
 static const GPathInfo STRAIGHT_INFO = {7,(GPoint*)STRAIGHT_PTS};
 
 static const GPoint SLIGHT_RIGHT_PTS[] = {
-  {11,-29},{26,-11},{17,-7},{4,28},{-6,28},{-11,0},{-1,-14}
+  {10,-28},{18,-6},{10,-9},{-4,28},{-15,24},{-2,-13},{-10,-16}
 };
 static const GPathInfo SLIGHT_RIGHT_INFO = {7,(GPoint*)SLIGHT_RIGHT_PTS};
 
@@ -25,7 +25,7 @@ static const GPoint TURN_LEFT_PTS[] = {
 static const GPathInfo TURN_LEFT_INFO = {9,(GPoint*)TURN_LEFT_PTS};
 
 static const GPoint SLIGHT_LEFT_PTS[] = {
-  {-11,-29},{-26,-11},{-17,-7},{-4,28},{6,28},{11,0},{1,-14}
+  {-10,-28},{-18,-6},{-10,-9},{4,28},{15,24},{2,-13},{10,-16}
 };
 static const GPathInfo SLIGHT_LEFT_INFO = {7,(GPoint*)SLIGHT_LEFT_PTS};
 

@@ -56,8 +56,54 @@ function startWatching() {
   console.log('GPS watch started.');
 }
 
+function maneuverToInt(type, modifier) {
+  var m = modifier || '';
+  if (type === 'arrive') return 9;
+  if (type === 'depart' || type === 'continue') {
+    if (m === 'slight right') return 2;
+    if (m === 'right') return 3;
+    if (m === 'sharp right') return 4;
+    if (m === 'uturn') return 5;
+    if (m === 'sharp left') return 6;
+    if (m === 'left') return 7;
+    if (m === 'slight left') return 8;
+    return 1; // straight / default
+  }
+  if (type === 'turn' || type === 'on ramp' || type === 'off ramp' || type === 'fork') {
+    if (m === 'slight right') return 2;
+    if (m === 'right') return 3;
+    if (m === 'sharp right') return 4;
+    if (m === 'uturn') return 5;
+    if (m === 'sharp left') return 6;
+    if (m === 'left') return 7;
+    if (m === 'slight left') return 8;
+    return 1;
+  }
+  if (type === 'roundabout' || type === 'rotary' || type === 'roundabout turn') {
+    if (m === 'left' || m === 'sharp left' || m === 'slight left') return 11;
+    return 10; // right by default
+  }
+  return 0; // depart/unknown — straight arrow
+}
+
+function isPedestrianInfrastructure(name) {
+  if (!name) return false;
+  var lower = name.toLowerCase();
+  var terms = ['walkway','footway','footpath','sidewalk','pedestrian','path','steps','alley','passage'];
+  for (var i = 0; i < terms.length; i++) {
+    if (lower.indexOf(terms[i]) !== -1) return true;
+  }
+  return false;
+}
+
 function formatInstruction(step) {
   if (step.maneuver && step.maneuver.instruction) {
+    if (isPedestrianInfrastructure(step.name)) {
+      var m = step.maneuver;
+      if (m.type === 'arrive') return 'You have arrived';
+      var dir = m.modifier ? m.modifier : 'straight';
+      return (m.type === 'turn' ? 'Turn ' : 'Continue ') + dir;
+    }
     return step.maneuver.instruction;
   }
   var maneuver = step.maneuver || {};
@@ -92,8 +138,11 @@ function sendStep(index) {
   var calcDistance = (units === 'imperial') ? step.distance * 3.28084 : step.distance;
   var distance = Math.round(calcDistance);
   console.log('Sending step ' + index + ': ' + instruction + ' (' + distance + (units === 'imperial' ? 'ft' : 'm') + ')');
+  var maneuver = step.maneuver || {};
+  var maneuverInt = maneuverToInt(maneuver.type, maneuver.modifier);
   Pebble.sendAppMessage({
     'AppKeyStepIndex': index,
+    'AppKeyManeuver': maneuverInt,
     'AppKeyStepCount': currentSteps.length,
     'AppKeyInstruction': instruction,
     'AppKeyDistance': distance,
