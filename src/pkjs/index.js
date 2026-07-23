@@ -86,24 +86,8 @@ function maneuverToInt(type, modifier) {
   return 0; // depart/unknown — straight arrow
 }
 
-function isPedestrianInfrastructure(name) {
-  if (!name) return false;
-  var lower = name.toLowerCase();
-  var terms = ['walkway','footway','footpath','sidewalk','pedestrian','path','steps','alley','passage'];
-  for (var i = 0; i < terms.length; i++) {
-    if (lower.indexOf(terms[i]) !== -1) return true;
-  }
-  return false;
-}
-
 function formatInstruction(step) {
   if (step.maneuver && step.maneuver.instruction) {
-    if (isPedestrianInfrastructure(step.name)) {
-      var m = step.maneuver;
-      if (m.type === 'arrive') return 'You have arrived';
-      var dir = m.modifier ? m.modifier : 'straight';
-      return (m.type === 'turn' ? 'Turn ' : 'Continue ') + dir;
-    }
     return step.maneuver.instruction;
   }
   var maneuver = step.maneuver || {};
@@ -198,7 +182,7 @@ function getWalkingDirections(destinationQuery) {
       console.log('Error requesting geolocation: ' + err.code);
       Pebble.sendAppMessage({ 'AppKeyInstruction': 'GPS error' });
     },
-    { timeout: 15000, maximumAge: 60000 }
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
   );
 }
 
