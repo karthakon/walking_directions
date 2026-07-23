@@ -9,6 +9,18 @@ var xhrRequest = function (url, type, callback) {
   xhr.send();
 };
 
+var xhrPostJson = function (url, headers, body, callback, errback) {
+  var xhr = new XMLHttpRequest();
+  xhr.onload = function () {
+    if (this.status >= 200 && this.status < 300) callback(this.responseText);
+    else errback('HTTP ' + this.status);
+  };
+  xhr.onerror = function () { errback('network error'); };
+  xhr.open('POST', url);
+  for (var k in headers) { if (headers.hasOwnProperty(k)) xhr.setRequestHeader(k, headers[k]); }
+  xhr.send(JSON.stringify(body));
+};
+
 var currentSteps = [];
 var currentStepIndex = 0;
 var watchId = null;
@@ -48,7 +60,13 @@ function startWatching(retryCount) {
       if (nextIndex >= currentSteps.length) return;
       var waypoint = currentSteps[nextIndex].maneuver.location;
       var dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, waypoint[1], waypoint[0]);
-      console.log('GPS tick: ' + dist.toFixed(1) + 'm to step ' + nextIndex);
+      console.log('GPS tick: ' + dist.toFixed(1) + 'm to step ' + nextIndex + ' (acc ' + (pos.coords.accuracy || -1).toFixed(0) + 'm)');
+      try {
+        var gl = JSON.parse(localStorage.getItem('gpsLog') || '[]');
+        gl.push(new Date().toISOString().substr(11,8) + ' s' + nextIndex + ' d' + dist.toFixed(1) + ' a' + (pos.coords.accuracy || -1).toFixed(0));
+        if (gl.length > 300) gl = gl.slice(-300);
+        localStorage.setItem('gpsLog', JSON.stringify(gl));
+      } catch (e) {}
       if (localStorage.getItem('autoAdvance') !== 'off' && dist < ADVANCE_RADIUS_M) {
         currentStepIndex = nextIndex;
         sendStep(currentStepIndex);
@@ -101,6 +119,42 @@ function maneuverToInt(type, modifier) {
   return 0; // depart/unknown — straight arrow
 }
 
+var GOOGLE_MANEUVER_INT = {
+  'DEPART': 0, 'STRAIGHT': 1, 'NAME_CHANGE': 1, 'MERGE': 1,
+  'TURN_SLIGHT_RIGHT': 2, 'FORK_RIGHT': 2, 'RAMP_RIGHT': 2,
+  'TURN_RIGHT': 3, 'TURN_SHARP_RIGHT': 4,
+  'UTURN_LEFT': 5, 'UTURN_RIGHT': 5,
+  'TURN_SHARP_LEFT': 6, 'TURN_LEFT': 7,
+  'TURN_SLIGHT_LEFT': 8, 'FORK_LEFT': 8, 'RAMP_LEFT': 8,
+  'DESTINATION': 9, 'DESTINATION_LEFT': 9, 'DESTINATION_RIGHT': 9,
+  'ROUNDABOUT_RIGHT': 10, 'ROUNDABOUT_LEFT': 11
+};
+
+function normalizeGoogleSteps(route) {
+  var out = [];
+  var legs = route.legs || [];
+  for (var l = 0; l < legs.length; l++) {
+    var gsteps = legs[l].steps || [];
+    for (var i = 0; i < gsteps.length; i++) {
+      var gs = gsteps[i];
+      var ni = gs.navigationInstruction || {};
+      var ll = (gs.startLocation && gs.startLocation.latLng) || {};
+      out.push({
+        distance: gs.distanceMeters || 0,
+        name: '',
+        maneuver: {
+          instruction: ni.instructions || 'Continue',
+          type: 'turn',
+          modifier: '',
+          location: [ll.longitude || 0, ll.latitude || 0],
+          googleManeuver: ni.maneuver || ''
+        }
+      });
+    }
+  }
+  return out;
+}
+
 function formatInstruction(step) {
   if (step.maneuver && step.maneuver.instruction) {
     return step.maneuver.instruction;
@@ -138,7 +192,13 @@ function sendStep(index) {
   var distance = Math.round(calcDistance);
   console.log('Sending step ' + index + ': ' + instruction + ' (' + distance + (units === 'imperial' ? 'ft' : 'm') + ')');
   var maneuver = step.maneuver || {};
-  var maneuverInt = maneuverToInt(maneuver.type, maneuver.modifier);
+  var maneuverInt;
+  if (maneuver.googleManeuver) {
+    maneuverInt = GOOGLE_MANEUVER_INT[maneuver.googleManeuver];
+    if (maneuverInt === undefined) maneuverInt = 1;
+  } else {
+    maneuverInt = maneuverToInt(maneuver.type, maneuver.modifier);
+  }
   Pebble.sendAppMessage({
     'AppKeyStepIndex': index,
     'AppKeyManeuver': maneuverInt,
@@ -147,6 +207,62 @@ function sendStep(index) {
     'AppKeyDistance': distance,
     'AppKeyUnit': units === 'imperial' ? 'ft' : 'm'
   });
+}
+
+function beginRoute(steps) {
+  if (!steps || steps.length === 0) {
+    Pebble.sendAppMessage({ 'AppKeyInstruction': 'You have arrived!' });
+    return;
+  }
+  currentSteps = steps;
+  currentStepIndex = 0;
+  sendStep(0);
+  startWatching();
+}
+
+function routeMapbox(startLat, startLon, destLat, destLon) {
+  var userToken = localStorage.getItem('mapboxToken');
+  var mapboxToken = (userToken && userToken.length > 10) ? userToken : config.MAPBOX_TOKEN;
+  var routeUrl = 'https://api.mapbox.com/directions/v5/mapbox/walking/' +
+    startLon + ',' + startLat + ';' + destLon + ',' + destLat +
+    '?steps=true&overview=false&walkway_bias=-1&access_token=' + mapboxToken;
+  xhrRequest(routeUrl, 'GET', function (txt) {
+    var j = JSON.parse(txt);
+    if (j.code !== 'Ok' || !j.routes || j.routes.length === 0) {
+      console.log('Mapbox: no route');
+      Pebble.sendAppMessage({ 'AppKeyInstruction': 'No walking route found' });
+      return;
+    }
+    beginRoute(j.routes[0].legs[0].steps);
+  });
+}
+
+function routeGoogle(googleKey, startLat, startLon, destLat, destLon) {
+  var body = {
+    origin: { location: { latLng: { latitude: Number(startLat), longitude: Number(startLon) } } },
+    destination: { location: { latLng: { latitude: Number(destLat), longitude: Number(destLon) } } },
+    travelMode: 'WALK',
+    languageCode: 'en-US'
+  };
+  var headers = {
+    'Content-Type': 'application/json',
+    'X-Goog-Api-Key': googleKey,
+    'X-Goog-FieldMask': 'routes.distanceMeters,routes.legs.steps.distanceMeters,routes.legs.steps.startLocation,routes.legs.steps.navigationInstruction'
+  };
+  xhrPostJson('https://routes.googleapis.com/directions/v2:computeRoutes', headers, body,
+    function (txt) {
+      var j = JSON.parse(txt);
+      if (!j.routes || j.routes.length === 0) {
+        console.log('Google: no route, falling back to Mapbox');
+        routeMapbox(startLat, startLon, destLat, destLon);
+        return;
+      }
+      beginRoute(normalizeGoogleSteps(j.routes[0]));
+    },
+    function (err) {
+      console.log('Google routing failed (' + err + '), falling back to Mapbox');
+      routeMapbox(startLat, startLon, destLat, destLon);
+    });
 }
 
 function getWalkingDirections(destinationQuery) {
@@ -166,31 +282,14 @@ function getWalkingDirections(destinationQuery) {
         var destLat = json[0].lat;
         var destLon = json[0].lon;
 
-        var userToken = localStorage.getItem('mapboxToken');
-        var mapboxToken = (userToken && userToken.length > 10) ? userToken : config.MAPBOX_TOKEN;
-        var routeUrl = 'https://api.mapbox.com/directions/v5/mapbox/walking/' +
-          startLon + ',' + startLat + ';' + destLon + ',' + destLat +
-          '?steps=true&overview=false&walkway_bias=-1&access_token=' + mapboxToken;
-
-        xhrRequest(routeUrl, 'GET', function (routeResponseText) {
-          var routeJson = JSON.parse(routeResponseText);
-          if (routeJson.code !== 'Ok' || !routeJson.routes || routeJson.routes.length === 0) {
-            console.log('No route found');
-            Pebble.sendAppMessage({ 'AppKeyInstruction': 'No walking route found' });
-            return;
-          }
-
-          var steps = routeJson.routes[0].legs[0].steps;
-          if (steps.length === 0) {
-            Pebble.sendAppMessage({ 'AppKeyInstruction': 'You have arrived!' });
-            return;
-          }
-
-          currentSteps = steps;
-          currentStepIndex = 0;
-          sendStep(0);
-          startWatching();
-        });
+        var googleKey = localStorage.getItem('googleKey');
+        if (googleKey && googleKey.length > 20) {
+          console.log('Routing via Google');
+          routeGoogle(googleKey, startLat, startLon, destLat, destLon);
+        } else {
+          console.log('Routing via Mapbox');
+          routeMapbox(startLat, startLon, destLat, destLon);
+        }
       });
     },
     function (err) {
@@ -219,15 +318,21 @@ Pebble.addEventListener('appmessage', function(e) {
   }
 });
 
-var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,input[type=text],button{font-size:16px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;box-sizing:border-box;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="autoAdvance">Auto-advance steps:</label><select id="autoAdvance"><option value="on">On (GPS auto-advance)</option><option value="off">Off (manual only)</option></select><label for="mapboxToken">Mapbox API Key (optional):</label><input type="text" id="mapboxToken" placeholder="Leave blank to use default"><p style="font-size:12px;color:#666;margin-top:5px;">Only needed if the default key stops working. Get a free key at mapbox.com.</p><button id="save">Save Settings</button><script>var unitsSelect=document.getElementById("units");unitsSelect.value=unitsSelect.getAttribute("data-current")||"metric";var advanceSelect=document.getElementById("autoAdvance");advanceSelect.value=advanceSelect.getAttribute("data-current")||"on";document.getElementById("save").onclick=function(){var cfg={units:unitsSelect.value,autoAdvance:advanceSelect.value,mapboxToken:document.getElementById("mapboxToken").value};window.location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(cfg));};</script></body></html>';
+var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,input[type=text],button{font-size:16px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;box-sizing:border-box;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="autoAdvance">Auto-advance steps:</label><select id="autoAdvance"><option value="on">On (GPS auto-advance)</option><option value="off">Off (manual only)</option></select><label for="mapboxToken">Mapbox API Key (optional):</label><input type="text" id="mapboxToken" placeholder="Leave blank to use default"><p style="font-size:12px;color:#666;margin-top:5px;">Only needed if the default key stops working. Get a free key at mapbox.com.</p><label for="googleKey">Google Routes API Key (optional):</label><input type="text" id="googleKey" placeholder="Leave blank to use Mapbox"><p style="font-size:12px;color:#666;margin-top:5px;">Directions are more accurate with your own Google Routes API key. Without one the app uses Mapbox, which may route you along unnamed walkways and crosswalks. A Google key is free for personal use at this volume (10,000 routes/month). Get one at console.cloud.google.com.</p><button id="save">Save Settings</button><script>var unitsSelect=document.getElementById("units");unitsSelect.value=unitsSelect.getAttribute("data-current")||"metric";var advanceSelect=document.getElementById("autoAdvance");advanceSelect.value=advanceSelect.getAttribute("data-current")||"on";document.getElementById("save").onclick=function(){var cfg={units:unitsSelect.value,autoAdvance:advanceSelect.value,mapboxToken:document.getElementById("mapboxToken").value,googleKey:document.getElementById("googleKey").value};window.location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(cfg));};</script></body></html>';
 
 Pebble.addEventListener('showConfiguration', function() {
   var currentUnits = localStorage.getItem('units') || 'metric';
   var currentAdvance = localStorage.getItem('autoAdvance') || 'on';
   var currentToken = localStorage.getItem('mapboxToken') || '';
+  var currentGoogle = localStorage.getItem('googleKey') || '';
   var populatedHtml = configHtml.replace('id="units"', 'id="units" data-current="' + currentUnits + '"');
   populatedHtml = populatedHtml.replace('id="autoAdvance"', 'id="autoAdvance" data-current="' + currentAdvance + '"');
   populatedHtml = populatedHtml.replace('id="mapboxToken"', 'id="mapboxToken" value="' + currentToken + '"');
+  populatedHtml = populatedHtml.replace('id="googleKey"', 'id="googleKey" value="' + currentGoogle + '"');
+  var gpsLog = JSON.parse(localStorage.getItem('gpsLog') || '[]');
+  populatedHtml = populatedHtml.replace('<button id="save">',
+    '<h3>GPS Log (' + gpsLog.length + ')</h3><textarea readonly rows="12" style="width:100%;font-family:monospace;font-size:11px;">' +
+    gpsLog.join('\n') + '</textarea><button id="save">');
   var dataUri = 'data:text/html;charset=utf-8,' + encodeURIComponent(populatedHtml);
   Pebble.openURL(dataUri);
 });
@@ -243,6 +348,12 @@ Pebble.addEventListener('webviewclosed', function(e) {
       } else {
         localStorage.removeItem('mapboxToken');
       }
+      if (cfg.googleKey && cfg.googleKey.length > 20) {
+        localStorage.setItem('googleKey', cfg.googleKey);
+      } else {
+        localStorage.removeItem('googleKey');
+      }
+      console.log('Routing provider: ' + (cfg.googleKey && cfg.googleKey.length > 20 ? 'Google' : 'Mapbox'));
       console.log('Config saved. Units: ' + cfg.units + ', autoAdvance: ' + cfg.autoAdvance + ', mapboxToken: ' + (cfg.mapboxToken ? 'user key' : 'default'));
     } catch (err) {
       console.log('Error parsing config: ' + err);
