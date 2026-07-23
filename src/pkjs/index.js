@@ -13,6 +13,9 @@ var currentSteps = [];
 var currentStepIndex = 0;
 var watchId = null;
 
+var ADVANCE_RADIUS_M = 8;
+var MAX_FIX_ACCURACY_M = 25;
+
 function haversineMeters(lat1, lon1, lat2, lon2) {
   var R = 6371000;
   var dLat = (lat2 - lat1) * Math.PI / 180;
@@ -37,12 +40,16 @@ function startWatching(retryCount) {
   watchId = navigator.geolocation.watchPosition(
     function(pos) {
       if (currentSteps.length === 0) return;
+      if (pos.coords.accuracy && pos.coords.accuracy > MAX_FIX_ACCURACY_M) {
+        console.log('GPS fix too coarse: ' + pos.coords.accuracy.toFixed(0) + 'm, skipping');
+        return;
+      }
       var nextIndex = currentStepIndex + 1;
       if (nextIndex >= currentSteps.length) return;
       var waypoint = currentSteps[nextIndex].maneuver.location;
       var dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, waypoint[1], waypoint[0]);
       console.log('GPS tick: ' + dist.toFixed(1) + 'm to step ' + nextIndex);
-      if (localStorage.getItem('autoAdvance') !== 'off' && dist < 20) {
+      if (localStorage.getItem('autoAdvance') !== 'off' && dist < ADVANCE_RADIUS_M) {
         currentStepIndex = nextIndex;
         sendStep(currentStepIndex);
         if (currentStepIndex === currentSteps.length - 1) {
