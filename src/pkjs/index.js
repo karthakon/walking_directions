@@ -31,7 +31,8 @@ function stopWatching() {
   }
 }
 
-function startWatching() {
+function startWatching(retryCount) {
+  retryCount = retryCount || 0;
   stopWatching();
   watchId = navigator.geolocation.watchPosition(
     function(pos) {
@@ -50,10 +51,17 @@ function startWatching() {
         }
       }
     },
-    function(err) { console.log('watchPosition error: ' + err.code); },
+    function(err) {
+      console.log('watchPosition error: ' + err.code + ' (attempt ' + (retryCount + 1) + ')');
+      if (retryCount < 3) {
+        setTimeout(function() { startWatching(retryCount + 1); }, 2000);
+      } else {
+        console.log('GPS watch failed after 3 retries, giving up.');
+      }
+    },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
   );
-  console.log('GPS watch started.');
+  console.log('GPS watch started (attempt ' + (retryCount + 1) + ')');
 }
 
 function maneuverToInt(type, modifier) {
