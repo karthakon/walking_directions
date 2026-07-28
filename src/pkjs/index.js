@@ -25,7 +25,7 @@ var currentSteps = [];
 var currentStepIndex = 0;
 var watchId = null;
 
-var ADVANCE_RADIUS_M = 8;
+var ADVANCE_RADIUS_M = 25;
 var MAX_FIX_ACCURACY_M = 25;
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -67,7 +67,7 @@ function startWatching(retryCount) {
         if (gl.length > 3000) gl = gl.slice(-3000);
         localStorage.setItem('gpsLog', JSON.stringify(gl));
       } catch (e) {}
-      if (localStorage.getItem('autoAdvance') !== 'off' && dist < ADVANCE_RADIUS_M) {
+      if (localStorage.getItem('autoAdvance') === 'on' && dist < ADVANCE_RADIUS_M) {
         currentStepIndex = nextIndex;
         sendStep(currentStepIndex);
         if (currentStepIndex === currentSteps.length - 1) {
@@ -318,11 +318,11 @@ Pebble.addEventListener('appmessage', function(e) {
   }
 });
 
-var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,input[type=text],button{font-size:16px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;box-sizing:border-box;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="autoAdvance">Auto-advance steps:</label><select id="autoAdvance"><option value="on">On (GPS auto-advance)</option><option value="off">Off (manual only)</option></select><label for="mapboxToken">Mapbox API Key (optional):</label><input type="text" id="mapboxToken" placeholder="Leave blank to use default"><p style="font-size:12px;color:#666;margin-top:5px;">Only needed if the default key stops working. Get a free key at mapbox.com.</p><label for="googleKey">Google Routes API Key (optional):</label><input type="text" id="googleKey" placeholder="Leave blank to use Mapbox"><p style="font-size:12px;color:#666;margin-top:5px;">Directions are more accurate with your own Google Routes API key. Without one the app uses Mapbox, which may route you along unnamed walkways and crosswalks. A Google key is free for personal use at this volume (10,000 routes/month). Get one at console.cloud.google.com.</p><button id="save">Save Settings</button><script>var unitsSelect=document.getElementById("units");unitsSelect.value=unitsSelect.getAttribute("data-current")||"metric";var advanceSelect=document.getElementById("autoAdvance");advanceSelect.value=advanceSelect.getAttribute("data-current")||"on";document.getElementById("save").onclick=function(){var cfg={units:unitsSelect.value,autoAdvance:advanceSelect.value,mapboxToken:document.getElementById("mapboxToken").value,googleKey:document.getElementById("googleKey").value};window.location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(cfg));};</script></body></html>';
+var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,input[type=text],button{font-size:16px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;box-sizing:border-box;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="autoAdvance">Auto-advance steps:</label><select id="autoAdvance"><option value="off">Off (manual only)</option><option value="on">On (GPS auto-advance)</option></select><p style="font-size:12px;color:#666;margin-top:5px;">Auto-advance only works while the Pebble app is open and your phone screen is on. It also fires late or not at all when the turn point sits off your walking line. Manual paging with UP/DOWN is recommended.</p><label for="mapboxToken">Mapbox API Key (optional):</label><input type="text" id="mapboxToken" placeholder="Leave blank to use default"><p style="font-size:12px;color:#666;margin-top:5px;">Only needed if the default key stops working. Get a free key at mapbox.com.</p><label for="googleKey">Google Routes API Key (optional):</label><input type="text" id="googleKey" placeholder="Leave blank to use Mapbox"><p style="font-size:12px;color:#666;margin-top:5px;">Directions are more accurate with your own Google Routes API key. Without one the app uses Mapbox, which may route you along unnamed walkways and crosswalks. A Google key is free for personal use at this volume (10,000 routes/month). Get one at console.cloud.google.com.</p><button id="save">Save Settings</button><script>var unitsSelect=document.getElementById("units");unitsSelect.value=unitsSelect.getAttribute("data-current")||"metric";var advanceSelect=document.getElementById("autoAdvance");advanceSelect.value=advanceSelect.getAttribute("data-current")||"on";document.getElementById("save").onclick=function(){var cfg={units:unitsSelect.value,autoAdvance:advanceSelect.value,mapboxToken:document.getElementById("mapboxToken").value,googleKey:document.getElementById("googleKey").value};window.location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(cfg));};</script></body></html>';
 
 Pebble.addEventListener('showConfiguration', function() {
   var currentUnits = localStorage.getItem('units') || 'metric';
-  var currentAdvance = localStorage.getItem('autoAdvance') || 'on';
+  var currentAdvance = localStorage.getItem('autoAdvance') || 'off';
   var currentToken = localStorage.getItem('mapboxToken') || '';
   var currentGoogle = localStorage.getItem('googleKey') || '';
   var populatedHtml = configHtml.replace('id="units"', 'id="units" data-current="' + currentUnits + '"');
@@ -342,7 +342,7 @@ Pebble.addEventListener('webviewclosed', function(e) {
     try {
       var cfg = JSON.parse(decodeURIComponent(e.response));
       localStorage.setItem('units', cfg.units);
-      localStorage.setItem('autoAdvance', cfg.autoAdvance || 'on');
+      localStorage.setItem('autoAdvance', cfg.autoAdvance || 'off');
       if (cfg.mapboxToken && cfg.mapboxToken.length > 10) {
         localStorage.setItem('mapboxToken', cfg.mapboxToken);
       } else {
