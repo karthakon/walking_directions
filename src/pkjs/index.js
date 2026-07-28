@@ -64,7 +64,7 @@ function startWatching(retryCount) {
       try {
         var gl = JSON.parse(localStorage.getItem('gpsLog') || '[]');
         gl.push(new Date().toISOString().substr(11,8) + ' s' + nextIndex + ' d' + dist.toFixed(1) + ' a' + (pos.coords.accuracy || -1).toFixed(0));
-        if (gl.length > 300) gl = gl.slice(-300);
+        if (gl.length > 3000) gl = gl.slice(-3000);
         localStorage.setItem('gpsLog', JSON.stringify(gl));
       } catch (e) {}
       if (localStorage.getItem('autoAdvance') !== 'off' && dist < ADVANCE_RADIUS_M) {
