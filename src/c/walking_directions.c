@@ -50,6 +50,15 @@ static char s_unit_text[4]      = "";
 static char s_counter_text[16]  = "";
 static char s_street_text[256]  = "Press Select\nto navigate";
 
+#define MAX_STEPS 32
+static char s_instr_arr[MAX_STEPS][64];
+static int  s_dist_arr[MAX_STEPS];
+static int  s_man_arr[MAX_STEPS];
+static int  s_dur_arr[MAX_STEPS];
+static int  s_steps_received = 0;
+static AppTimer *s_advance_timer = NULL;
+static char s_clock_text[8] = "";
+
 static GColor banner_bg(int m) {
 #ifdef PBL_COLOR
   switch (m) {
@@ -84,6 +93,35 @@ static void draw_uturn(GContext *ctx, GPoint c) {
   gpath_destroy(p);
 }
 
+static void schedule_advance(void);
+
+static void show_step(int index) {
+  if (index < 0 || index >= s_steps_received) return;
+  s_current_step_index = index;
+  s_maneuver = s_man_arr[index];
+  snprintf(s_distance_text, sizeof(s_distance_text), "%d", s_dist_arr[index]);
+  snprintf(s_counter_text, sizeof(s_counter_text),
+           "%d/%d", index + 1, s_total_steps);
+  snprintf(s_street_text, sizeof(s_street_text), "%s", s_instr_arr[index]);
+  text_layer_set_text(s_street_layer, s_street_text);
+  layer_mark_dirty(s_banner_layer);
+  vibes_short_pulse();
+  schedule_advance();
+}
+
+static void advance_timer_cb(void *data) {
+  s_advance_timer = NULL;
+  if (s_current_step_index < s_steps_received - 1)
+    show_step(s_current_step_index + 1);
+}
+
+static void schedule_advance(void) {
+  if (s_advance_timer) { app_timer_cancel(s_advance_timer); s_advance_timer = NULL; }
+  int dur = s_dur_arr[s_current_step_index];
+  if (dur > 0 && s_current_step_index < s_steps_received - 1)
+    s_advance_timer = app_timer_register(dur * 1000, advance_timer_cb, NULL);
+}
+
 static void banner_update_proc(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
   int w = b.size.w, h = b.size.h;
@@ -101,6 +139,12 @@ static void banner_update_proc(Layer *layer, GContext *ctx) {
       fonts_get_system_font(FONT_KEY_GOTHIC_18),
       GRect(6, 3, lw, 20),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+
+  if (s_clock_text[0])
+    graphics_draw_text(ctx, s_clock_text,
+      fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+      GRect(w/2, 1, w - (w/2) - 6, 28),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 
   if (s_distance_text[0])
     graphics_draw_text(ctx, s_distance_text,
@@ -139,13 +183,6 @@ static void banner_update_proc(Layer *layer, GContext *ctx) {
   gpath_destroy(arrow);
 }
 
-static void request_step(int index) {
-  DictionaryIterator *iter;
-  app_message_outbox_begin(&iter);
-  dict_write_int32(iter, MESSAGE_KEY_AppKeyStepIndex, index);
-  app_message_outbox_send();
-}
-
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
   Tuple *instr_t    = dict_find(iterator, MESSAGE_KEY_AppKeyInstruction);
   Tuple *index_t    = dict_find(iterator, MESSAGE_KEY_AppKeyStepIndex);
@@ -153,30 +190,25 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   Tuple *distance_t = dict_find(iterator, MESSAGE_KEY_AppKeyDistance);
   Tuple *unit_t     = dict_find(iterator, MESSAGE_KEY_AppKeyUnit);
   Tuple *maneuver_t = dict_find(iterator, MESSAGE_KEY_AppKeyManeuver);
+  Tuple *dur_t      = dict_find(iterator, MESSAGE_KEY_AppKeyStepDuration);
 
-  if (!instr_t) return;
+  if (!instr_t || !index_t || !count_t) return;
 
-  if (index_t && count_t) {
-    s_current_step_index = (int)index_t->value->int32;
-    s_total_steps        = (int)count_t->value->int32;
-    if (maneuver_t) s_maneuver = (int)maneuver_t->value->int32;
-    if (distance_t) snprintf(s_distance_text, sizeof(s_distance_text),
-                             "%d", (int)distance_t->value->int32);
-    if (unit_t)     snprintf(s_unit_text, sizeof(s_unit_text),
-                             "%s", unit_t->value->cstring);
-    snprintf(s_counter_text, sizeof(s_counter_text),
-             "%d/%d", s_current_step_index + 1, s_total_steps);
-  } else {
-    s_maneuver         = 0;
-    s_distance_text[0] = '\0';
-    s_unit_text[0]     = '\0';
-    s_counter_text[0]  = '\0';
+  int idx = (int)index_t->value->int32;
+  if (idx < 0 || idx >= MAX_STEPS) return;
+
+  s_total_steps = (int)count_t->value->int32;
+  snprintf(s_instr_arr[idx], sizeof(s_instr_arr[idx]), "%s", instr_t->value->cstring);
+  s_dist_arr[idx] = distance_t ? (int)distance_t->value->int32 : 0;
+  s_man_arr[idx]  = maneuver_t ? (int)maneuver_t->value->int32 : 0;
+  s_dur_arr[idx]  = dur_t ? (int)dur_t->value->int32 : 0;
+  if (unit_t) snprintf(s_unit_text, sizeof(s_unit_text), "%s", unit_t->value->cstring);
+
+  if (idx + 1 > s_steps_received) s_steps_received = idx + 1;
+
+  if (s_steps_received >= s_total_steps) {
+    show_step(0);
   }
-
-  snprintf(s_street_text, sizeof(s_street_text), "%s", instr_t->value->cstring);
-  text_layer_set_text(s_street_layer, s_street_text);
-  layer_mark_dirty(s_banner_layer);
-  vibes_short_pulse();
 }
 
 static void dictation_session_callback(DictationSession *session,
@@ -202,11 +234,11 @@ static void dictation_session_callback(DictationSession *session,
 }
 
 static void up_click(ClickRecognizerRef r, void *ctx) {
-  if (s_current_step_index > 0) request_step(s_current_step_index - 1);
+  if (s_current_step_index > 0) show_step(s_current_step_index - 1);
 }
 static void down_click(ClickRecognizerRef r, void *ctx) {
-  if (s_current_step_index < s_total_steps - 1)
-    request_step(s_current_step_index + 1);
+  if (s_current_step_index < s_steps_received - 1)
+    show_step(s_current_step_index + 1);
 }
 static void select_click(ClickRecognizerRef r, void *ctx) {
   dictation_session_start(s_dictation_session);
@@ -215,6 +247,20 @@ static void click_config_provider(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_UP,     up_click);
   window_single_click_subscribe(BUTTON_ID_DOWN,   down_click);
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
+}
+
+static void update_clock(struct tm *t) {
+  if (clock_is_24h_style()) {
+    strftime(s_clock_text, sizeof(s_clock_text), "%H:%M", t);
+  } else {
+    strftime(s_clock_text, sizeof(s_clock_text), "%l:%M", t);
+    if (s_clock_text[0] == ' ') memmove(s_clock_text, s_clock_text + 1, strlen(s_clock_text));
+  }
+}
+
+static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+  update_clock(tick_time);
+  layer_mark_dirty(s_banner_layer);
 }
 
 static void prv_window_load(Window *window) {
@@ -262,6 +308,10 @@ static void prv_init(void) {
   s_dictation_session = dictation_session_create(
     sizeof(s_dictation_buf), dictation_session_callback, NULL);
   dictation_session_enable_confirmation(s_dictation_session, true);
+
+  time_t now = time(NULL);
+  update_clock(localtime(&now));
+  tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
 }
 
 static void prv_deinit(void) {

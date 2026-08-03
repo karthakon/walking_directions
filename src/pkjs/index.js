@@ -23,71 +23,6 @@ var xhrPostJson = function (url, headers, body, callback, errback) {
 
 var currentSteps = [];
 var currentStepIndex = 0;
-var watchId = null;
-
-var ADVANCE_RADIUS_M = 25;
-var MAX_FIX_ACCURACY_M = 25;
-
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  var R = 6371000;
-  var dLat = (lat2 - lat1) * Math.PI / 180;
-  var dLon = (lon2 - lon1) * Math.PI / 180;
-  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-          Math.sin(dLon/2) * Math.sin(dLon/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function stopWatching() {
-  if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-    console.log('GPS watch cleared.');
-  }
-}
-
-function startWatching(retryCount) {
-  retryCount = retryCount || 0;
-  stopWatching();
-  watchId = navigator.geolocation.watchPosition(
-    function(pos) {
-      if (currentSteps.length === 0) return;
-      if (pos.coords.accuracy && pos.coords.accuracy > MAX_FIX_ACCURACY_M) {
-        console.log('GPS fix too coarse: ' + pos.coords.accuracy.toFixed(0) + 'm, skipping');
-        return;
-      }
-      var nextIndex = currentStepIndex + 1;
-      if (nextIndex >= currentSteps.length) return;
-      var waypoint = currentSteps[nextIndex].maneuver.location;
-      var dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, waypoint[1], waypoint[0]);
-      console.log('GPS tick: ' + dist.toFixed(1) + 'm to step ' + nextIndex + ' (acc ' + (pos.coords.accuracy || -1).toFixed(0) + 'm)');
-      try {
-        var gl = JSON.parse(localStorage.getItem('gpsLog') || '[]');
-        gl.push(new Date().toISOString().substr(11,8) + ' s' + nextIndex + ' d' + dist.toFixed(1) + ' a' + (pos.coords.accuracy || -1).toFixed(0));
-        if (gl.length > 3000) gl = gl.slice(-3000);
-        localStorage.setItem('gpsLog', JSON.stringify(gl));
-      } catch (e) {}
-      if (localStorage.getItem('autoAdvance') === 'on' && dist < ADVANCE_RADIUS_M) {
-        currentStepIndex = nextIndex;
-        sendStep(currentStepIndex);
-        if (currentStepIndex === currentSteps.length - 1) {
-          console.log('Arrived at destination, clearing GPS watch.');
-          stopWatching();
-        }
-      }
-    },
-    function(err) {
-      console.log('watchPosition error: ' + err.code + ' (attempt ' + (retryCount + 1) + ')');
-      if (retryCount < 3) {
-        setTimeout(function() { startWatching(retryCount + 1); }, 2000);
-      } else {
-        console.log('GPS watch failed after 3 retries, giving up.');
-      }
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-  );
-  console.log('GPS watch started (attempt ' + (retryCount + 1) + ')');
-}
 
 function maneuverToInt(type, modifier) {
   var m = modifier || '';
@@ -183,14 +118,28 @@ function formatInstruction(step) {
   return action;
 }
 
-function sendStep(index) {
-  if (index < 0 || index >= currentSteps.length) return;
+function paceMetersPerSec() {
+  var val = parseFloat(localStorage.getItem('paceValue'));
+  var unit = localStorage.getItem('paceUnit') || 'mph';
+  if (!val || val <= 0) val = (unit === 'kph') ? 5 : 3;
+  return (unit === 'kph') ? (val * 1000 / 3600) : (val * 1609.34 / 3600);
+}
+
+function stepDuration(step) {
+  if (localStorage.getItem('advanceMode') !== 'time') return 0;
+  var mps = paceMetersPerSec();
+  if (mps <= 0) return 0;
+  var secs = Math.round(step.distance / mps);
+  if (secs < 1) secs = 1;
+  return secs;
+}
+
+function buildStepMsg(index) {
   var step = currentSteps[index];
   var instruction = formatInstruction(step);
   var units = localStorage.getItem('units') || 'metric';
   var calcDistance = (units === 'imperial') ? step.distance * 3.28084 : step.distance;
   var distance = Math.round(calcDistance);
-  console.log('Sending step ' + index + ': ' + instruction + ' (' + distance + (units === 'imperial' ? 'ft' : 'm') + ')');
   var maneuver = step.maneuver || {};
   var maneuverInt;
   if (maneuver.googleManeuver) {
@@ -199,14 +148,31 @@ function sendStep(index) {
   } else {
     maneuverInt = maneuverToInt(maneuver.type, maneuver.modifier);
   }
-  Pebble.sendAppMessage({
+  return {
     'AppKeyStepIndex': index,
     'AppKeyManeuver': maneuverInt,
     'AppKeyStepCount': currentSteps.length,
     'AppKeyInstruction': instruction,
     'AppKeyDistance': distance,
-    'AppKeyUnit': units === 'imperial' ? 'ft' : 'm'
-  });
+    'AppKeyUnit': units === 'imperial' ? 'ft' : 'm',
+    'AppKeyStepDuration': stepDuration(step)
+  };
+}
+
+function sendAllSteps(index) {
+  if (index >= currentSteps.length) {
+    console.log('All ' + currentSteps.length + ' steps sent.');
+    return;
+  }
+  console.log('Sending step ' + index + '/' + (currentSteps.length - 1));
+  Pebble.sendAppMessage(
+    buildStepMsg(index),
+    function() { sendAllSteps(index + 1); },
+    function(e) {
+      console.log('Step ' + index + ' send failed, retrying in 500ms');
+      setTimeout(function() { sendAllSteps(index); }, 500);
+    }
+  );
 }
 
 function beginRoute(steps) {
@@ -216,8 +182,7 @@ function beginRoute(steps) {
   }
   currentSteps = steps;
   currentStepIndex = 0;
-  sendStep(0);
-  startWatching();
+  sendAllSteps(0);
 }
 
 function routeMapbox(startLat, startLon, destLat, destLon) {
@@ -312,27 +277,23 @@ Pebble.addEventListener('appmessage', function(e) {
     console.log('Destination received: ' + dest);
     getWalkingDirections(dest);
   }
-  if (dict['AppKeyStepIndex'] !== undefined) {
-    currentStepIndex = dict['AppKeyStepIndex'];
-    sendStep(currentStepIndex);
-  }
 });
 
-var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,input[type=text],button{font-size:16px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;box-sizing:border-box;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="autoAdvance">Auto-advance steps:</label><select id="autoAdvance"><option value="off">Off (manual only)</option><option value="on">On (GPS auto-advance)</option></select><p style="font-size:12px;color:#666;margin-top:5px;">Auto-advance only works while the Pebble app is open and your phone screen is on. It also fires late or not at all when the turn point sits off your walking line. Manual paging with UP/DOWN is recommended.</p><label for="mapboxToken">Mapbox API Key (optional):</label><input type="text" id="mapboxToken" placeholder="Leave blank to use default"><p style="font-size:12px;color:#666;margin-top:5px;">Only needed if the default key stops working. Get a free key at mapbox.com.</p><label for="googleKey">Google Routes API Key (optional):</label><input type="text" id="googleKey" placeholder="Leave blank to use Mapbox"><p style="font-size:12px;color:#666;margin-top:5px;">Directions are more accurate with your own Google Routes API key. Without one the app uses Mapbox, which may route you along unnamed walkways and crosswalks. A Google key is free for personal use at this volume (10,000 routes/month). Get one at console.cloud.google.com.</p><button id="save">Save Settings</button><script>var unitsSelect=document.getElementById("units");unitsSelect.value=unitsSelect.getAttribute("data-current")||"metric";var advanceSelect=document.getElementById("autoAdvance");advanceSelect.value=advanceSelect.getAttribute("data-current")||"on";document.getElementById("save").onclick=function(){var cfg={units:unitsSelect.value,autoAdvance:advanceSelect.value,mapboxToken:document.getElementById("mapboxToken").value,googleKey:document.getElementById("googleKey").value};window.location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(cfg));};</script></body></html>';
+var configHtml = '<!DOCTYPE html><html><head><title>Settings</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:sans-serif;padding:20px;background-color:#f4f4f4;}select,input[type=text],button{font-size:16px;margin-top:15px;padding:10px;width:100%;border-radius:5px;border:1px solid #ccc;box-sizing:border-box;}</style></head><body><h2>Directions Settings</h2><label for="units">Preferred Units:</label><select id="units"><option value="metric">Metric (meters)</option><option value="imperial">Imperial (feet)</option></select><label for="advanceMode">Step advance:</label><select id="advanceMode"><option value="manual">Manual (UP/DOWN only)</option><option value="time">Time-based (auto)</option></select><p style="font-size:12px;color:#666;margin-top:5px;">Time-based advance moves to the next step automatically based on your walking pace. It runs on the watch, so it keeps working with your phone in your pocket. Keep the app open on the watch. Use UP/DOWN any time to correct.</p><label for="paceValue">Walking pace:</label><div style="display:flex;gap:10px;"><input type="text" id="paceValue" inputmode="decimal" placeholder="3" style="flex:2;"><select id="paceUnit" style="flex:1;"><option value="mph">mph</option><option value="kph">kph</option></select></div><p style="font-size:12px;color:#666;margin-top:5px;">Average walking pace is about 3 mph / 5 kph. Only used for time-based advance.</p><label for="mapboxToken">Mapbox API Key (optional):</label><input type="text" id="mapboxToken" placeholder="Leave blank to use default"><p style="font-size:12px;color:#666;margin-top:5px;">Only needed if the default key stops working. Get a free key at mapbox.com.</p><label for="googleKey">Google Routes API Key (optional):</label><input type="text" id="googleKey" placeholder="Leave blank to use Mapbox"><p style="font-size:12px;color:#666;margin-top:5px;">Directions are more accurate with your own Google Routes API key. Without one the app uses Mapbox, which may route you along unnamed walkways and crosswalks. A Google key is free for personal use at this volume (10,000 routes/month). Get one at console.cloud.google.com.</p><button id="save">Save Settings</button><script>var unitsSelect=document.getElementById("units");unitsSelect.value=unitsSelect.getAttribute("data-current")||"metric";var advSelect=document.getElementById("advanceMode");advSelect.value=advSelect.getAttribute("data-current")||"manual";var paceUnitSel=document.getElementById("paceUnit");paceUnitSel.value=paceUnitSel.getAttribute("data-current")||"mph";document.getElementById("save").onclick=function(){var cfg={units:unitsSelect.value,advanceMode:advSelect.value,paceValue:document.getElementById("paceValue").value,paceUnit:paceUnitSel.value,mapboxToken:document.getElementById("mapboxToken").value,googleKey:document.getElementById("googleKey").value};window.location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(cfg));};</script></body></html>';
 
 Pebble.addEventListener('showConfiguration', function() {
   var currentUnits = localStorage.getItem('units') || 'metric';
-  var currentAdvance = localStorage.getItem('autoAdvance') || 'off';
+  var currentAdvance = localStorage.getItem('advanceMode') || 'manual';
+  var currentPaceVal = localStorage.getItem('paceValue') || '';
+  var currentPaceUnit = localStorage.getItem('paceUnit') || 'mph';
   var currentToken = localStorage.getItem('mapboxToken') || '';
   var currentGoogle = localStorage.getItem('googleKey') || '';
   var populatedHtml = configHtml.replace('id="units"', 'id="units" data-current="' + currentUnits + '"');
-  populatedHtml = populatedHtml.replace('id="autoAdvance"', 'id="autoAdvance" data-current="' + currentAdvance + '"');
+  populatedHtml = populatedHtml.replace('id="advanceMode"', 'id="advanceMode" data-current="' + currentAdvance + '"');
+  populatedHtml = populatedHtml.replace('id="paceUnit"', 'id="paceUnit" data-current="' + currentPaceUnit + '"');
+  populatedHtml = populatedHtml.replace('id="paceValue"', 'id="paceValue" value="' + currentPaceVal + '"');
   populatedHtml = populatedHtml.replace('id="mapboxToken"', 'id="mapboxToken" value="' + currentToken + '"');
   populatedHtml = populatedHtml.replace('id="googleKey"', 'id="googleKey" value="' + currentGoogle + '"');
-  var gpsLog = JSON.parse(localStorage.getItem('gpsLog') || '[]');
-  populatedHtml = populatedHtml.replace('<button id="save">',
-    '<h3>GPS Log (' + gpsLog.length + ')</h3><textarea readonly rows="12" style="width:100%;font-family:monospace;font-size:11px;">' +
-    gpsLog.join('\n') + '</textarea><button id="save">');
   var dataUri = 'data:text/html;charset=utf-8,' + encodeURIComponent(populatedHtml);
   Pebble.openURL(dataUri);
 });
@@ -342,7 +303,13 @@ Pebble.addEventListener('webviewclosed', function(e) {
     try {
       var cfg = JSON.parse(decodeURIComponent(e.response));
       localStorage.setItem('units', cfg.units);
-      localStorage.setItem('autoAdvance', cfg.autoAdvance || 'off');
+      localStorage.setItem('advanceMode', cfg.advanceMode || 'manual');
+      if (cfg.paceValue && parseFloat(cfg.paceValue) > 0) {
+        localStorage.setItem('paceValue', cfg.paceValue);
+      } else {
+        localStorage.removeItem('paceValue');
+      }
+      localStorage.setItem('paceUnit', cfg.paceUnit || 'mph');
       if (cfg.mapboxToken && cfg.mapboxToken.length > 10) {
         localStorage.setItem('mapboxToken', cfg.mapboxToken);
       } else {
@@ -354,7 +321,7 @@ Pebble.addEventListener('webviewclosed', function(e) {
         localStorage.removeItem('googleKey');
       }
       console.log('Routing provider: ' + (cfg.googleKey && cfg.googleKey.length > 20 ? 'Google' : 'Mapbox'));
-      console.log('Config saved. Units: ' + cfg.units + ', autoAdvance: ' + cfg.autoAdvance + ', mapboxToken: ' + (cfg.mapboxToken ? 'user key' : 'default'));
+      console.log('Config saved. Units: ' + cfg.units + ', advanceMode: ' + cfg.advanceMode + ', pace: ' + (cfg.paceValue || 'default') + ' ' + cfg.paceUnit);
     } catch (err) {
       console.log('Error parsing config: ' + err);
     }

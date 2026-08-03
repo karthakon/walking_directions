@@ -32,7 +32,8 @@
       "AppKeyStepIndex",
       "AppKeyDistance",
       "AppKeyUnit",
-      "AppKeyManeuver"
+      "AppKeyManeuver",
+      "AppKeyStepDuration"
     ],
     "capabilities": [
       "location",
