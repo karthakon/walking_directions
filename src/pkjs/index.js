@@ -134,30 +134,50 @@ function stepDuration(step) {
   return secs;
 }
 
+function formatDistance(meters, units) {
+  if (units === 'imperial') {
+    var feet = meters * 3.28084;
+    if (feet >= 528) {
+      return { value: (feet / 5280).toFixed(1), unit: 'mi' };
+    }
+    return { value: String(Math.round(feet)), unit: 'ft' };
+  }
+  // metric
+  if (meters >= 1000) {
+    return { value: (meters / 1000).toFixed(1), unit: 'km' };
+  }
+  return { value: String(Math.round(meters)), unit: 'm' };
+}
+
 function buildStepMsg(index) {
   var step = currentSteps[index];
   var instruction = formatInstruction(step);
   var units = localStorage.getItem('units') || 'metric';
-  var calcDistance = (units === 'imperial') ? step.distance * 3.28084 : step.distance;
-  var distance = Math.round(calcDistance);
   var maneuver = step.maneuver || {};
   var maneuverInt;
+  var distStr, unitStr;
   if (step.isArrival) {
     maneuverInt = 9;
-    distance = -1;
-  } else if (maneuver.googleManeuver) {
-    maneuverInt = GOOGLE_MANEUVER_INT[maneuver.googleManeuver];
-    if (maneuverInt === undefined) maneuverInt = 1;
+    distStr = '';
+    unitStr = '';
   } else {
-    maneuverInt = maneuverToInt(maneuver.type, maneuver.modifier);
+    if (maneuver.googleManeuver) {
+      maneuverInt = GOOGLE_MANEUVER_INT[maneuver.googleManeuver];
+      if (maneuverInt === undefined) maneuverInt = 1;
+    } else {
+      maneuverInt = maneuverToInt(maneuver.type, maneuver.modifier);
+    }
+    var fd = formatDistance(step.distance, units);
+    distStr = fd.value;
+    unitStr = fd.unit;
   }
   return {
     'AppKeyStepIndex': index,
     'AppKeyManeuver': maneuverInt,
     'AppKeyStepCount': currentSteps.length,
     'AppKeyInstruction': instruction,
-    'AppKeyDistance': distance,
-    'AppKeyUnit': units === 'imperial' ? 'ft' : 'm',
+    'AppKeyDistance': distStr,
+    'AppKeyUnit': unitStr,
     'AppKeyStepDuration': stepDuration(step)
   };
 }

@@ -52,13 +52,13 @@ static char s_street_text[256]  = "Press Select\nto navigate";
 
 #define MAX_STEPS 32
 static char s_instr_arr[MAX_STEPS][64];
-static int  s_dist_arr[MAX_STEPS];
+static char s_dist_arr[MAX_STEPS][12];
+static char s_unit_arr[MAX_STEPS][4];
 static int  s_man_arr[MAX_STEPS];
 static int  s_dur_arr[MAX_STEPS];
 static int  s_steps_received = 0;
 static AppTimer *s_advance_timer = NULL;
 static char s_clock_text[8] = "";
-static char s_unit_saved[4] = "";
 
 static GColor banner_bg(int m) {
 #ifdef PBL_COLOR
@@ -100,13 +100,8 @@ static void show_step(int index) {
   if (index < 0 || index >= s_steps_received) return;
   s_current_step_index = index;
   s_maneuver = s_man_arr[index];
-  if (s_dist_arr[index] < 0) {
-    s_distance_text[0] = '\0';
-    s_unit_text[0] = '\0';
-  } else {
-    snprintf(s_distance_text, sizeof(s_distance_text), "%d", s_dist_arr[index]);
-    snprintf(s_unit_text, sizeof(s_unit_text), "%s", s_unit_saved);
-  }
+  snprintf(s_distance_text, sizeof(s_distance_text), "%s", s_dist_arr[index]);
+  snprintf(s_unit_text, sizeof(s_unit_text), "%s", s_unit_arr[index]);
   snprintf(s_counter_text, sizeof(s_counter_text),
            "%d/%d", index + 1, s_total_steps);
   snprintf(s_street_text, sizeof(s_street_text), "%s", s_instr_arr[index]);
@@ -206,10 +201,12 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 
   s_total_steps = (int)count_t->value->int32;
   snprintf(s_instr_arr[idx], sizeof(s_instr_arr[idx]), "%s", instr_t->value->cstring);
-  s_dist_arr[idx] = distance_t ? (int)distance_t->value->int32 : 0;
+  if (distance_t) snprintf(s_dist_arr[idx], sizeof(s_dist_arr[idx]), "%s", distance_t->value->cstring);
+  else            s_dist_arr[idx][0] = '\0';
+  if (unit_t) snprintf(s_unit_arr[idx], sizeof(s_unit_arr[idx]), "%s", unit_t->value->cstring);
+  else        s_unit_arr[idx][0] = '\0';
   s_man_arr[idx]  = maneuver_t ? (int)maneuver_t->value->int32 : 0;
   s_dur_arr[idx]  = dur_t ? (int)dur_t->value->int32 : 0;
-  if (unit_t) snprintf(s_unit_saved, sizeof(s_unit_saved), "%s", unit_t->value->cstring);
 
   if (idx + 1 > s_steps_received) s_steps_received = idx + 1;
 
