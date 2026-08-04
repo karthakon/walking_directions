@@ -58,6 +58,7 @@ static int  s_dur_arr[MAX_STEPS];
 static int  s_steps_received = 0;
 static AppTimer *s_advance_timer = NULL;
 static char s_clock_text[8] = "";
+static char s_unit_saved[4] = "";
 
 static GColor banner_bg(int m) {
 #ifdef PBL_COLOR
@@ -99,7 +100,13 @@ static void show_step(int index) {
   if (index < 0 || index >= s_steps_received) return;
   s_current_step_index = index;
   s_maneuver = s_man_arr[index];
-  snprintf(s_distance_text, sizeof(s_distance_text), "%d", s_dist_arr[index]);
+  if (s_dist_arr[index] < 0) {
+    s_distance_text[0] = '\0';
+    s_unit_text[0] = '\0';
+  } else {
+    snprintf(s_distance_text, sizeof(s_distance_text), "%d", s_dist_arr[index]);
+    snprintf(s_unit_text, sizeof(s_unit_text), "%s", s_unit_saved);
+  }
   snprintf(s_counter_text, sizeof(s_counter_text),
            "%d/%d", index + 1, s_total_steps);
   snprintf(s_street_text, sizeof(s_street_text), "%s", s_instr_arr[index]);
@@ -202,7 +209,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   s_dist_arr[idx] = distance_t ? (int)distance_t->value->int32 : 0;
   s_man_arr[idx]  = maneuver_t ? (int)maneuver_t->value->int32 : 0;
   s_dur_arr[idx]  = dur_t ? (int)dur_t->value->int32 : 0;
-  if (unit_t) snprintf(s_unit_text, sizeof(s_unit_text), "%s", unit_t->value->cstring);
+  if (unit_t) snprintf(s_unit_saved, sizeof(s_unit_saved), "%s", unit_t->value->cstring);
 
   if (idx + 1 > s_steps_received) s_steps_received = idx + 1;
 

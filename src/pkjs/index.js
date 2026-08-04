@@ -142,7 +142,10 @@ function buildStepMsg(index) {
   var distance = Math.round(calcDistance);
   var maneuver = step.maneuver || {};
   var maneuverInt;
-  if (maneuver.googleManeuver) {
+  if (step.isArrival) {
+    maneuverInt = 9;
+    distance = -1;
+  } else if (maneuver.googleManeuver) {
     maneuverInt = GOOGLE_MANEUVER_INT[maneuver.googleManeuver];
     if (maneuverInt === undefined) maneuverInt = 1;
   } else {
@@ -175,12 +178,64 @@ function sendAllSteps(index) {
   );
 }
 
+function finalizeArrival(steps) {
+  if (!steps || steps.length === 0) return steps;
+  var last = steps[steps.length - 1];
+  var lastType = (last.maneuver && last.maneuver.type) || '';
+  var lastInstr = (last.maneuver && last.maneuver.instruction) || '';
+
+  // Case A: provider already emitted an explicit arrive step (Mapbox).
+  if (lastType === 'arrive') {
+    last.isArrival = true;
+    last.distance = 0;
+    return steps;
+  }
+
+  // Case B: instruction folds arrival onto the last turn as a 2nd line (Google).
+  var nl = lastInstr.indexOf('\n');
+  if (nl >= 0) {
+    var turnText = lastInstr.substring(0, nl);
+    var arriveText = lastInstr.substring(nl + 1);
+    // Trim the folded arrival line off the turn step.
+    last.maneuver.instruction = turnText;
+    // Append a synthetic arrive step.
+    steps.push({
+      distance: 0,
+      name: '',
+      isArrival: true,
+      maneuver: {
+        instruction: arriveText,
+        type: 'arrive',
+        modifier: '',
+        location: last.maneuver.location || [0, 0],
+        googleManeuver: 'DESTINATION'
+      }
+    });
+    return steps;
+  }
+
+  // Case C: no explicit arrival anywhere — append a generic one.
+  steps.push({
+    distance: 0,
+    name: '',
+    isArrival: true,
+    maneuver: {
+      instruction: 'You have arrived.',
+      type: 'arrive',
+      modifier: '',
+      location: (last.maneuver && last.maneuver.location) || [0, 0],
+      googleManeuver: 'DESTINATION'
+    }
+  });
+  return steps;
+}
+
 function beginRoute(steps) {
   if (!steps || steps.length === 0) {
     Pebble.sendAppMessage({ 'AppKeyInstruction': 'You have arrived!' });
     return;
   }
-  currentSteps = steps;
+  currentSteps = finalizeArrival(steps);
   currentStepIndex = 0;
   sendAllSteps(0);
 }
